@@ -1,0 +1,120 @@
+// Local dev uses SQLite for zero-config setup.
+// PRODUCTION: switch provider to "postgresql" and DATABASE_URL to your Postgres
+// connection string, then run the exclusion-constraint migration in
+// prisma/migrations_manual/001_booking_exclusion_constraint.sql (see README).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Service {
+  id              String    @id @default(cuid())
+  name            String
+  description     String
+  durationMinutes Int
+  price           Float
+  category        String // portrait | event | wedding | product | other
+  active          Boolean   @default(true)
+  sortOrder       Int       @default(0)
+  bookings        Booking[]
+  createdAt       DateTime  @default(now())
+}
+
+model Booking {
+  id                String    @id @default(cuid())
+  clientName        String
+  clientEmail       String
+  clientPhone       String // E.164, e.g. +254712345678
+  whatsappOptIn     Boolean   @default(false)
+  whatsappOptInAt   DateTime?
+  serviceId         String
+  service           Service   @relation(fields: [serviceId], references: [id])
+  date              String // YYYY-MM-DD (stored as string for simple exact-match uniqueness)
+  startTime         String // HH:mm 24h
+  endTime           String // HH:mm 24h
+  status            String    @default("held") // held | confirmed | cancelled | completed
+  paymentStatus     String    @default("pending") // pending | paid | failed | refunded
+  paymentReference  String? // Stripe PaymentIntent / Checkout Session id
+  notes             String?
+  holdExpiresAt     DateTime? // temporary hold expiry (checkout window)
+  clientUserId      String?
+  clientUser        ClientUser?      @relation(fields: [clientUserId], references: [id])
+  notifications     NotificationLog[]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Database-level double-booking guarantee for the common case (identical
+  // start time). Combined with the app-level transaction check in
+  // lib/booking.ts, which also accounts for the configurable buffer window.
+  // On Postgres, replace with the EXCLUDE USING gist constraint in
+  // prisma/migrations_manual/001_booking_exclusion_constraint.sql for a
+  // true overlap-safe guarantee independent of app logic.
+  @@unique([date, startTime])
+  @@index([date])
+  @@index([status])
+}
+
+model NotificationLog {
+  id          String   @id @default(cuid())
+  bookingId   String
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  channel     String // email | whatsapp
+  messageType String // booking_confirmation_client | booking_confirmation_owner | reminder_24h_client | reminder_1h_client | reminder_24h_owner | fallback_email
+  status      String // sent | failed | pending
+  error       String?
+  sentAt      DateTime @default(now())
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  name            String
+  email           String
+  phone           String
+  eventType       String
+  preferredDates  String
+  budget          String?
+  status          String   @default("new") // new | contacted | converted | lost
+  source          String? // for conversion-funnel / UTM tracking
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model BlockedSlot {
+  id        String @id @default(cuid())
+  date      String
+  startTime String
+  endTime   String
+  reason    String
+}
+
+model AdminUser {
+  id             String @id @default(cuid())
+  email          String @unique
+  hashedPassword String
+  role           String @default("owner") // owner | staff
+  createdAt      DateTime @default(now())
+}
+
+model ClientUser {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  hashedPassword String?
+  bookings       Booking[]
+  createdAt      DateTime @default(now())
+}
+
+model MagicLinkToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+}

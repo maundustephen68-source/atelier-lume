@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #f7f4ee;
+  color: #1c1b19;
+}
+
+::selection {
+  background-color: #a6803d;
+  color: #f7f4ee;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid #a6803d;
+  outline-offset: 3px;
+}
+
+/* Signature motif: the arch, used sparingly as an aperture/viewfinder
+   reference across the hero and section dividers. */
+.arch-mask {
+  clip-path: path(
+    "M0,400 L0,140 C0,62 78,0 175,0 C272,0 350,62 350,140 L350,400 Z"
+  );
+}
