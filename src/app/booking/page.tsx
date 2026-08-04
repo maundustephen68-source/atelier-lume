@@ -93,8 +93,8 @@ function BookingContent() {
             >
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} — ${s.price.toFixed(0)} ({s.durationMinutes} min)
-                </option>
+             {s.name} — KSh {s.price.toLocaleString()} ({s.durationMinutes} min)    
+               </option>
               ))}
             </select>
           </div>
@@ -195,8 +195,8 @@ function BookingContent() {
               <p className="mt-4 text-sm text-ink/80">
                 {date || "Select a date"} {startTime && `· ${startTime}`}
               </p>
-              <p className="mt-6 font-serif text-3xl text-ink">${selectedService.price.toFixed(0)}</p>
-              <p className="mt-1 text-xs text-muted">Charged securely via Stripe. No card details reach our servers.</p>
+            <p className="mt-6 font-serif text-3xl text-ink">KSh {selectedService.price.toLocaleString()}</p>             
+            <p className="mt-1 text-xs text-muted">Charged securely via Stripe. No card details reach our servers.</p>
             </>
           ) : (
             <p className="mt-3 text-sm text-muted">Loading packages…</p>

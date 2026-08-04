@@ -32,8 +32,7 @@ export default async function ServicesPage() {
             <h2 className="mt-2 font-serif text-xl text-ink">{s.name}</h2>
             <p className="mt-3 flex-1 text-sm text-muted">{s.description}</p>
             <p className="mt-6 text-[12px] uppercase tracking-eyebrow text-muted">{s.durationMinutes} minutes</p>
-            <p className="mt-1 font-serif text-2xl text-ink">${s.price.toFixed(0)}</p>
-            <Link
+            <p className="mt-1 font-serif text-2xl text-ink">KSh {s.price.toLocaleString()}</p>            <Link
               href={`/booking?service=${s.id}`}
               className="mt-6 border border-ink py-3 text-center text-[13px] uppercase tracking-eyebrow text-ink transition hover:bg-ink hover:text-paper focus-ring"
             >
