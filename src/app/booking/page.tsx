@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useCsrf, csrfHeaders } from "@/lib/useCsrf";
 import { trackEvent } from "@/lib/analytics";
@@ -7,7 +7,7 @@ import { extractErrorMessage } from "@/lib/errors";
 
 type Service = { id: string; name: string; description: string; durationMinutes: number; price: number };
 
-export default function BookingPage() {
+function BookingContent() {
   const searchParams = useSearchParams();
   const csrf = useCsrf();
 
@@ -238,5 +238,13 @@ export default function BookingPage() {
         }
       `}</style>
     </section>
+  );
+}
+
+export default function BookingPage() {
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-content px-5 py-16 md:px-8 md:py-24">Loading…</div>}>
+      <BookingContent />
+    </Suspense>
   );
 }
