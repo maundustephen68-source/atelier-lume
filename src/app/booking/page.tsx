@@ -1,13 +1,22 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useCsrf, csrfHeaders } from "@/lib/useCsrf";
 import { trackEvent } from "@/lib/analytics";
 import { extractErrorMessage } from "@/lib/errors";
+import { Suspense } from "react";
 
 type Service = { id: string; name: string; description: string; durationMinutes: number; price: number };
 
-function BookingContent() {
+export default function BookingPage() {
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-content px-5 py-16 md:px-8 md:py-24 text-sm text-muted">Loading…</div>}>
+      <BookingForm />
+    </Suspense>
+  );
+}
+
+function BookingForm() {
   const searchParams = useSearchParams();
   const csrf = useCsrf();
 
@@ -21,8 +30,12 @@ function BookingContent() {
   const [whatsappOptIn, setWhatsappOptIn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-
   const [startedTracked, setStartedTracked] = useState(false);
+
+  const [payStatus, setPayStatus] = useState<"idle" | "waiting" | "failed">("idle");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollAttempts = useRef(0);
+
   const selectedService = services.find((s) => s.id === serviceId);
 
   useEffect(() => {
@@ -44,6 +57,43 @@ function BookingContent() {
       .finally(() => setLoadingSlots(false));
   }, [date, serviceId]);
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  function startPolling(bookingId: string) {
+    pollAttempts.current = 0;
+    pollRef.current = setInterval(async () => {
+      pollAttempts.current += 1;
+      const res = await fetch(`/api/bookings/status?bookingId=${bookingId}`);
+      const data = await res.json().catch(() => ({}));
+
+      if (data.status === "confirmed") {
+        if (pollRef.current) clearInterval(pollRef.current);
+        trackEvent("booking_paid", { bookingId });
+        window.location.href = `/booking/confirmed?booking=${bookingId}`;
+        return;
+      }
+      if (data.status === "failed" || data.status === "cancelled") {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setPayStatus("failed");
+        setError(
+          data.status === "failed"
+            ? "Payment wasn't completed on your phone. You can try again."
+            : "The request expired. Please try again."
+        );
+        return;
+      }
+      if (pollAttempts.current > 40) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setPayStatus("failed");
+        setError("This is taking longer than expected. Check your phone, or try again.");
+      }
+    }, 3000);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!serviceId || !date || !startTime) {
@@ -52,7 +102,7 @@ function BookingContent() {
     }
     setSubmitting(true);
     setError("");
-    const res = await fetch("/api/bookings/hold", {
+    const res = await fetch("/api/bookings/mpesa-pay", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...csrfHeaders(csrf) },
       body: JSON.stringify({
@@ -64,9 +114,10 @@ function BookingContent() {
       }),
     });
     const data = await res.json().catch(() => ({}));
+    setSubmitting(false);
+
     if (!res.ok) {
       setError(extractErrorMessage(data.error) || "That slot may have just been taken. Please pick another.");
-      setSubmitting(false);
       if (res.status === 409 && date) {
         fetch(`/api/bookings/availability?date=${date}&serviceId=${serviceId}`)
           .then((r) => r.json())
@@ -74,7 +125,14 @@ function BookingContent() {
       }
       return;
     }
-    window.location.href = data.checkoutUrl;
+
+    setPayStatus("waiting");
+    startPolling(data.bookingId);
+  }
+
+  function retry() {
+    setPayStatus("idle");
+    setError("");
   }
 
   return (
@@ -93,8 +151,8 @@ function BookingContent() {
             >
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
-             {s.name} — KSh {s.price.toLocaleString()} ({s.durationMinutes} min)    
-               </option>
+                  {s.name} — KSh {s.price.toLocaleString()} ({s.durationMinutes} min)
+                </option>
               ))}
             </select>
           </div>
@@ -166,6 +224,7 @@ function BookingContent() {
                 value={form.clientPhone}
                 onChange={(e) => setForm({ ...form, clientPhone: e.target.value })}
               />
+              <p className="text-xs text-muted">This is the M-Pesa number the payment prompt will be sent to.</p>
               <textarea
                 placeholder="Notes (optional)"
                 rows={3}
@@ -195,8 +254,8 @@ function BookingContent() {
               <p className="mt-4 text-sm text-ink/80">
                 {date || "Select a date"} {startTime && `· ${startTime}`}
               </p>
-            <p className="mt-6 font-serif text-3xl text-ink">KSh {selectedService.price.toLocaleString()}</p>             
-            <p className="mt-1 text-xs text-muted">Charged securely via Stripe. No card details reach our servers.</p>
+              <p className="mt-6 font-serif text-3xl text-ink">KSh {selectedService.price.toLocaleString()}</p>
+              <p className="mt-1 text-xs text-muted">Paid securely via M-Pesa. You'll get a prompt on your phone.</p>
             </>
           ) : (
             <p className="mt-3 text-sm text-muted">Loading packages…</p>
@@ -204,16 +263,36 @@ function BookingContent() {
 
           {error && <p className="mt-4 text-sm text-danger">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-6 w-full border border-ink bg-ink py-3.5 text-[13px] uppercase tracking-eyebrow text-paper transition hover:bg-brass hover:border-brass disabled:opacity-60 focus-ring"
-          >
-            {submitting ? "Preparing checkout…" : "Continue to payment"}
-          </button>
+          {payStatus === "waiting" ? (
+            <div className="mt-6 border border-brass/30 bg-brass/10 p-4 text-center">
+              <p className="text-sm font-medium text-ink">Check your phone</p>
+              <p className="mt-1 text-xs text-muted">
+                A payment prompt was sent to {form.clientPhone}. Enter your M-Pesa PIN to confirm.
+              </p>
+              <div className="mx-auto mt-3 h-1.5 w-24 overflow-hidden rounded-full bg-line">
+                <div className="h-full w-1/3 animate-pulse bg-brass" />
+              </div>
+            </div>
+          ) : payStatus === "failed" ? (
+            <button
+              type="button"
+              onClick={retry}
+              className="mt-6 w-full border border-ink bg-ink py-3.5 text-[13px] uppercase tracking-eyebrow text-paper transition hover:bg-brass hover:border-brass focus-ring"
+            >
+              Try again
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={submitting}
+              className="mt-6 w-full border border-ink bg-ink py-3.5 text-[13px] uppercase tracking-eyebrow text-paper transition hover:bg-brass hover:border-brass disabled:opacity-60 focus-ring"
+            >
+              {submitting ? "Sending prompt…" : "Pay with M-Pesa"}
+            </button>
+          )}
 
           <div className="mt-6 space-y-1 text-[11px] uppercase tracking-eyebrow text-muted">
-            <p>Secure payment · Stripe</p>
+            <p>Secure payment · M-Pesa</p>
             <p>Your slot is held for 10 minutes during checkout</p>
           </div>
         </aside>
@@ -238,13 +317,5 @@ function BookingContent() {
         }
       `}</style>
     </section>
-  );
-}
-
-export default function BookingPage() {
-  return (
-    <Suspense fallback={<div className="mx-auto max-w-content px-5 py-16 md:px-8 md:py-24">Loading…</div>}>
-      <BookingContent />
-    </Suspense>
   );
 }
